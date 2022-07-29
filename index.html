@@ -1,0 +1,407 @@
+<html>
+    <head>
+        <title>Arcade Scores</title>
+        <script src="https://unpkg.com/vue@3"></script>
+        <script src="https://unpkg.com/realm-web/dist/bundle.iife.js"></script>
+        <script src="https://unpkg.com/@mongodb-js/charts-embed-dom"></script>
+        <style>
+            ul {
+              list-style-type: none;
+              margin: 0;
+              padding: 0;
+              overflow: hidden;
+              background-color: #333;
+            }
+            
+            li {
+              float: left;
+            }
+            
+            li a {
+              display: block;
+              color: white;
+              text-align: center;
+              padding: 14px 16px;
+              text-decoration: none;
+            }
+            
+            li a:hover {
+              background-color: #111;
+            }
+
+            .alert {
+              padding: 20px;
+              background-color: #f44336;
+              color: white;
+              opacity: 1;
+              transition: opacity 0.6s;
+              margin-bottom: 15px;
+            }
+            .closebtn {
+              margin-left: 15px;
+              color: white;
+              font-weight: bold;
+              float: right;
+              font-size: 22px;
+              line-height: 20px;
+              cursor: pointer;
+              transition: 0.3s;
+            }
+            </style>            
+    </head>
+    <body>
+        <div id="app">
+            <!-- Menu -->
+            <ul>
+                <li><a class="active"@click="showChallenges">Home</a></li>
+                <li><a v-if="mode!='login'" @click="showStats">Game Stats</a></li>
+                <li><a v-if="mode!='login'" @click="showSettings">Settings</a></li>
+                <li><a v-if="mode!='login'" @click="logout">Logout</a></li>
+            </ul>
+
+            <!-- Error message -->
+            <div class="alert" v-if="errorMessage">
+                <span class="closebtn" @click="closeErrorMessage">&times;</span>  
+                {{errorMessage}}
+            </div>
+    
+            <!-- Login page -->
+            <div v-if="mode=='login'">
+                <h1>Login</h1>
+                <label for="username">Username: </label>
+                <input id="username" v-model="username"/>
+                <br/>
+                <label for="password">Password: </label>
+                <input id="password" type="password" v-model="password"/>
+                <br/>
+                <button @click="login">Login</button>
+                <hr/>
+                If you are new to the page, you can <a href="newUser.html">Create a new user.</a>
+            </div>
+
+            <!-- Settings page -->
+            <div v-if="mode=='settings'">
+                <label for="nickname">Nickname: </label>
+                <input id="nickname" v-model="nickname"/>
+                <br/>
+                <button @click="saveSettings">Save</button>
+            </div>
+
+            <!-- Challenge data -->
+            <div v-if="mode=='showGameData'">
+                <h1>Challenges</h1>
+                <div style="width: 300px; float: left;">
+                    <button @click="newChallenge">New Challenge</button>
+                    <table>
+                        <tr v-for="game in games">
+                            <td @mouseover="game.mouseover=true" @mouseleave="game.mouseover=false">
+                                <a href="#" @click="getChallengeDetails(game._id)">{{game.name}}</a>
+                                <img  v-if="game.mouseover" src="trash.svg" @click="deleteChallenge(game)" style="cursor: pointer;"/>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                <div style="margin-left: 300px;">
+                    <table>
+                        <tr>
+                            <td><label for="challengeName">Challenge:</label></td>
+                            <td><input id="challengeName"  v-model="currentGame.name"/></td>
+                        </tr>
+                        <tr>
+                            <td><label for="challengeDescription">Description:</label></td>
+                            <td><textarea id="challengeDescription" v-model="currentGame.description" rows="4" cols="50"></textarea></td>
+                        </tr>
+                    </table>
+                    <button @click="saveChallenge">Save</button>
+                    <hr/>
+                    <table>
+                        <tr>
+                            <th>Score</th>
+                            <th>Level</th>
+                            <th>Date/Time</th>
+                            <th>&nbsp;</th>
+                        </tr>
+                        <tr>
+                            <td><input v-model.number="newScore.score"></td>
+                            <td><input v-model.number="newScore.level"></td>
+                            <td><input type="datetime-local" v-model="newScore.date"></td>
+                            <td><button @click="saveGameScore()">Add new score</button></td>
+                        </tr>
+                        <tr v-for="score in currentGameScores">
+                            <td v-if="!score.editMode">{{score.score}}</td>
+                            <td v-if="score.editMode"><input v-model.number="score.score"/></td>
+                            <td v-if="!score.editMode">{{score.level}}</td>
+                            <td v-if="score.editMode"><input v-model.number="score.level"/></td>
+                            <td v-if="!score.editMode">{{score.date.toLocaleString()}}</td>
+                            <td v-if="score.editMode"><input type="datetime-local" v-model="score.date"></td>
+                            <td v-if="!score.editMode">
+                                <img src="pencil.svg" @click="setToEditableScore(score)" style="cursor: pointer;"/>
+                                <img src="trash.svg" @click="deleteScore(score)" style="cursor: pointer;"/>
+                            </td>
+                            <td v-if="score.editMode">
+                                <img src="check-square.svg" @click="saveGameScore(score)" style="cursor: pointer;"/>
+                                <img src="x-square.svg" @click="setToEditableScore(score, false)" style="cursor: pointer;"/>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            <div id="gameStats" v-if="mode=='showGameStats'">
+                <div id="chartGamesPlayed"></div>
+                <div id="chartHighScores"></div>
+            </div>
+        </div>
+        <script>
+            const SCORE_FETCH_LIMIT = 50
+            const app = new Realm.App({ id: 'arcadescores-lryoh' });
+            const { createApp } = Vue
+            var challengeCollection
+            var scoreCollection
+            var user = null
+            var cachedGameScore = null
+            function compare( a, b ) {
+                if ( a.name < b.name ){
+                    return -1;
+                }
+                if ( a.name > b.name ){
+                    return 1;
+                }
+                return 0;
+            }
+          
+            createApp({
+              data() {
+                return {
+                  mode: 'login',
+                  username: '',
+                  password: '',
+                  games: [],
+                  currentGame: {},
+                  currentGameScores: [],
+                  newScore: {
+                      score: null,
+                      level: null,
+                      date: null,
+                  },
+                  errorMessage: null,
+                  nickname: null,
+                }
+              },
+              watch: {
+                mode: {
+                    handler(newMode) {
+                        if("showGameStats" == newMode) {
+                            const sdk = new ChartsEmbedSDK({
+                                baseUrl: "https://charts.mongodb.com/charts-m001-uoxrh",
+                                getUserToken: () => user.accessToken,
+                            });
+                            const chartGamesPlayed = sdk.createChart({
+                                chartId: "620eec6a-75af-467d-8c4d-94655e5076f4",
+                                height: "500px",
+                            })
+                            const chartHighScores = sdk.createChart({
+                                chartId: "620eec6a-75af-4a9a-8fd7-94655e5076f7",
+                                height: "500px",
+                            })
+                            chartGamesPlayed.render(document.getElementById("chartGamesPlayed")).then(()=>{
+                                chartGamesPlayed.addEventListener("click", (payload)=>{
+                                    console.log(payload)
+                                    chartGamesPlayed.setHighlight(payload.selectionFilter)
+                                    //hack because joining isn't completely working in charts
+                                    gameId = null
+                                    const gameName = payload.selectionFilter['game_id_lookup_Challenge.name']
+                                    for(let i = 0; i < this.games.length; i++){
+                                        if(this.games[i].name == gameName) {
+                                            gameId=this.games[i]._id
+                                        }
+                                    }
+                                    if(gameId) chartHighScores.setFilter({"game_id": gameId})
+                                })
+                            })
+                            chartHighScores.render(document.getElementById("chartHighScores"))
+                        }
+                    },
+                    flush: 'post'
+                }
+              },
+              methods: {
+                login: async function() {
+                    user = await app.logIn(
+                        Realm.Credentials.emailPassword(this.username, this.password))
+                    if(user.isLoggedIn) {
+                        console.log(user.id)
+                        this.initDataAccess()
+                        this.showChallenges()//default page when logged in
+                    }
+                },
+                logout: async function() {
+                    console.log('log out')
+                    user.logOut().then(()=>{
+                        this.password = ''
+                        this.username=''
+                        this.mode='login'
+                    })
+                },
+                showSettings: function() {
+                    this.mode='settings'
+                    if(user.customData) {
+                        this.nickname=user.customData.nickname
+                    }
+                },
+                saveSettings: function() {
+                    user.functions.updateUserSettings(user.id, this.nickname).then((res)=>{
+                        console.log("Settings saved")
+                    }).catch((err)=>{
+                      this.showErrorMessage("Error saving settings (" + err.message + ")")
+                    })
+                },
+                initDataAccess: function() {
+                    const mongo = app.currentUser.mongoClient("mongodb-atlas");
+                    challengeCollection = mongo.db("ArcadeScores").collection("Challenge");
+                    scoreCollection = mongo.db("ArcadeScores").collection("Score")
+                },
+                newChallenge: function() {
+                    this.currentGame = {}
+                    this.currentGameScores = []
+                },
+                showChallenges: function() {
+                    this.mode='showGameData'
+                    challengeCollection.find({}).then((gamesFound) => {
+                        this.games=gamesFound.sort(compare)
+                    })
+                },
+                saveChallenge: function() {
+                    if(this.currentGame=={}) return
+                    const id = this.currentGame._id
+                    if(id) {
+                        challengeCollection.updateOne({"_id": this.currentGame._id}, 
+                                                {
+                                                    $set: {
+                                                        "name": this.currentGame.name,
+                                                        "description": this.currentGame.description
+                                                    }
+                                                }).then(()=>{
+                                                    //make the gui update to reflect the change
+                                                    this.games.forEach(g=>{
+                                                        if(g._id.equals(id)) {
+                                                            g.name = this.currentGame.name
+                                                        }
+                                                    })
+                                                    this.games.sort(compare)
+                                                })
+                    } else {
+                        if(typeof this.currentGame.name === 'undefined' || this.currentGame.name === null) {
+                            this.showErrorMessage("Challenge must be filled in")
+                            return
+                        }
+                        challenge = {
+                            "name": this.currentGame.name, 
+                            "description": this.currentGame.description,
+                            "user_id": user.id,
+                        }
+                        challengeCollection.insertOne(challenge).then((res)=> {
+                            this.currentGame._id = res.insertedId
+                            this.games.push(this.currentGame)
+                            this.games.sort(compare)
+                        }).catch((err)=>{
+                            console.log(err)
+                            this.showErrorMessage("Error creating challenge. (" + err.message + ")")
+                        })
+                    }
+                },
+                deleteChallenge: function(challenge) {
+                    if(confirm("This will delete the challenge " + challenge.name + " as well as all associated scores. Do you want to proceed?")) {
+                        user.functions.deleteChallenge(challenge._id).then((res)=>{
+                            remainingChallenges = this.games.filter(data => data._id != challenge._id);
+                            this.games = remainingChallenges
+                            if(this.currentGame._id==challenge._id) {
+                                //remove the game from current view
+                                this.currentGame={}
+                                this.currentGameScores=[]
+                            }
+                        }).catch((err)=>{
+                            this.showErrorMessage("Error deleting challenge(" + err.message + ")")
+                        })
+                    }
+                },
+                getChallengeDetails: function(id) {
+                    challengeCollection.findOne({"_id": id}).then(game => {
+                        this.currentGame = game
+                        scoreCollection.find({"game_id": id}, {sort: {date: -1}, limit: SCORE_FETCH_LIMIT}).then(scores => {
+                            this.currentGameScores = scores
+                        })
+                    })
+                },
+                saveGameScore: function(score) {
+                    if('undefined' === typeof score) {
+                        //it's a new score
+                        score = {
+                            date: this.newScore.date == null? new Date(): new Date(this.newScore.date),
+                            user_id: user.id,
+                            game_id: this.currentGame._id,
+                            score: this.newScore.score,
+                            level: this.newScore.level
+                        }
+                        scoreCollection.insertOne(score).then(res=>{
+                            score._id = res.insertedId
+                            //add to score list
+                            this.currentGameScores.unshift(score)
+                            if(this.currentGameScores.length > SCORE_FETCH_LIMIT) this.currentGameScores.pop()
+                            //reset input
+                            this.newScore = {
+                                score: null,
+                                level: null,
+                                date: null,
+                            }
+                        })
+                    } else {
+                        //it's an existing score
+                        const d = score.date
+                        scoreCollection.updateOne({"_id": score._id}, {$set: {
+                            score: score.score,
+                            level: score.level,
+                            date: new Date(d),
+                        }}).then(res=>{
+                            score.date=new Date(d)
+                            score.editMode=false
+                        })
+                    }
+                },
+                setToEditableScore: function(score, state=true) {
+                    if(state) {
+                        cachedGameScore = Object.assign({}, score)
+                        const d = score.date
+                        score.date = d.getFullYear() + "-" + ("0"+(d.getMonth()+1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2)  + "T" + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+                    } else {
+                        score.date = new Date(cachedGameScore.date)
+                        score.level = cachedGameScore.level
+                        score.score = cachedGameScore.score
+                    }
+                    score.editMode=state
+                },
+                deleteScore: function(score) {
+                    if(confirm('Are you sure you want to delete the score?')) {
+                        scoreCollection.deleteOne({"_id": score._id}).then((res) => {
+                                scoreCollection.find({"game_id": this.currentGame._id}, {sort: {date: -1}, limit: SCORE_FETCH_LIMIT}).then(scores => {
+                                this.currentGameScores = scores
+                            })
+                        }).catch((err) => {
+                            this.showErrorMessage("Error occurred when deleting score. (" + err.message + ")")
+                        })
+                    }
+                },
+                showStats: function() {
+                    this.mode="showGameStats"
+                },
+                showErrorMessage: function(message) {
+                    this.errorMessage = message
+                },
+                closeErrorMessage: function() {
+                    this.errorMessage = null
+                }
+            }
+
+            }).mount('#app')
+          </script>
+    </body>
+</html>

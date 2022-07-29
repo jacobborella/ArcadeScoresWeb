@@ -1,0 +1,109 @@
+<html>
+    <head>
+        <title>Arcade Scores</title>
+        <script src="https://unpkg.com/vue@3"></script>
+        <script src="https://unpkg.com/realm-web/dist/bundle.iife.js"></script>
+        <style>
+            ul {
+              list-style-type: none;
+              margin: 0;
+              padding: 0;
+              overflow: hidden;
+              background-color: #333;
+            }
+            
+            li {
+              float: left;
+            }
+            
+            li a {
+              display: block;
+              color: white;
+              text-align: center;
+              padding: 14px 16px;
+              text-decoration: none;
+            }
+            
+            li a:hover {
+              background-color: #111;
+            }
+
+            .alert {
+              padding: 20px;
+              background-color: #f44336;
+              color: white;
+              opacity: 1;
+              transition: opacity 0.6s;
+              margin-bottom: 15px;
+            }
+            .closebtn {
+              margin-left: 15px;
+              color: white;
+              font-weight: bold;
+              float: right;
+              font-size: 22px;
+              line-height: 20px;
+              cursor: pointer;
+              transition: 0.3s;
+            }
+            </style>            
+    </head>
+    <body>
+        <div id="app">
+            <!-- Error message -->
+            <div class="alert" v-if="errorMessage">
+                <span class="closebtn" @click="closeErrorMessage">&times;</span>  
+                {{errorMessage}}
+            </div>
+
+            <!-- Login page -->
+            <div>
+                <h1>{{message}}</h1>
+                
+                <button @click="confirmEmail">Confirm</button>
+            </div>
+        </div>
+        <script>
+            const app = new Realm.App({ id: 'arcadescores-lryoh' });
+            const { createApp } = Vue
+            createApp({
+              data() {
+                return {
+                  errorMessage: null,
+                  message: "Confirming user"
+                }
+              },
+              methods: {
+                confirmEmail: async function() {
+                    let uri = window.location.href.split('?');
+                    if(uri.length == 2) {
+                        let vars = uri[1].split('&');
+                        let getVars = {};
+                        let tmp = '';
+                        vars.forEach(function(v) {
+                            tmp = v.split('=');
+                            if(tmp.length == 2)
+                            getVars[tmp[0]] = tmp[1];
+                        });
+                        console.log(getVars.token);
+                        console.log(getVars.tokenId);
+                        app.emailPasswordAuth.confirmUser({"token": getVars.token, "tokenId": getVars.tokenId}).then((e) => {
+                            this.message="User Confirmed"
+                        }).catch((error) =>{
+                            console.log(error)
+                            this.message= "User Confirmation failed"
+                        })
+                    }
+                },
+                showErrorMessage: function(message) {
+                    this.errorMessage = message
+                },
+                closeErrorMessage: function() {
+                    this.errorMessage = null
+                }
+            }
+
+            }).mount('#app')
+          </script>
+    </body>
+</html>

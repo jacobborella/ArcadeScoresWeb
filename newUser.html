@@ -1,0 +1,114 @@
+<html>
+    <head>
+        <title>Arcade Scores</title>
+        <script src="https://unpkg.com/vue@3"></script>
+        <script src="https://unpkg.com/realm-web/dist/bundle.iife.js"></script>
+        <style>
+            ul {
+              list-style-type: none;
+              margin: 0;
+              padding: 0;
+              overflow: hidden;
+              background-color: #333;
+            }
+            
+            li {
+              float: left;
+            }
+            
+            li a {
+              display: block;
+              color: white;
+              text-align: center;
+              padding: 14px 16px;
+              text-decoration: none;
+            }
+            
+            li a:hover {
+              background-color: #111;
+            }
+
+            .alert {
+              padding: 20px;
+              background-color: #f44336;
+              color: white;
+              opacity: 1;
+              transition: opacity 0.6s;
+              margin-bottom: 15px;
+            }
+            .closebtn {
+              margin-left: 15px;
+              color: white;
+              font-weight: bold;
+              float: right;
+              font-size: 22px;
+              line-height: 20px;
+              cursor: pointer;
+              transition: 0.3s;
+            }
+            </style>            
+    </head>
+    <body>
+        <div id="app">
+            <!-- Error message -->
+            <div class="alert" v-if="errorMessage">
+                <span class="closebtn" @click="closeErrorMessage">&times;</span>  
+                {{errorMessage}}
+            </div>
+
+            <!-- Login page -->
+            <div>
+                <h1>Login</h1>
+                <label for="username">Username: </label>
+                <input id="username" v-model="username"/>
+                <br/>
+                <label for="password">Password: </label>
+                <input id="password" type="password" v-model="password"/>
+                <br/>
+
+                <button @click="addUser">Confirm</button>
+            </div>
+        </div>
+        <script>
+            function findGetParameter(parameterName) {
+                var result = null,
+                    tmp = [];
+                location.search
+                    .substr(1)
+                    .split("&")
+                    .forEach(function (item) {
+                    tmp = item.split("=");
+                    if (tmp[0] === parameterName) result = decodeURIComponent(tmp[1]);
+                    });
+                return result;
+            }
+            const app = new Realm.App({ id: 'arcadescores-lryoh' });
+            const { createApp } = Vue
+            createApp({
+              data() {
+                return {
+                  username: "",
+                  password: "",
+                  errorMessage: null,
+                }
+              },
+              methods: {
+                addUser: async function() {
+                   app.emailPasswordAuth.registerUser({ email: '', password: '' }).then(()=>{
+                    console.log("done")
+                   }).catch((error)=>{
+                     console.log(error)
+                   })
+                },
+                showErrorMessage: function(message) {
+                    this.errorMessage = message
+                },
+                closeErrorMessage: function() {
+                    this.errorMessage = null
+                }
+            }
+
+            }).mount('#app')
+          </script>
+    </body>
+</html>
